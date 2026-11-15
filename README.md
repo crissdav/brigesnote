@@ -1,6 +1,6 @@
 # 🏫 Bridges Note - MINEDU ESCALE Bridge API
 
-Microservicio y API REST en **Laravel 7** diseñado para sincronizar, estructurar y servir el catálogo oficial de instituciones educativas (colegios) y la división política/geográfica (regiones, provincias y distritos) del Perú, consumiendo directamente la API pública oficial de **MINEDU / ESCALE** (*Estadística de la Calidad Educativa*).
+Microservicio y API REST en **Laravel 13 / PHP 8.3+** diseñado para sincronizar, estructurar y servir el catálogo oficial de instituciones educativas (colegios) y la división política/geográfica (regiones, provincias y distritos) del Perú, consumiendo directamente la API pública oficial de **MINEDU / ESCALE** (*Estadística de la Calidad Educativa*).
 
 ---
 
@@ -14,7 +14,9 @@ Microservicio y API REST en **Laravel 7** diseñado para sincronizar, estructura
 6. [Sincronización de Datos (Consola Artisan)](#-sincronización-de-datos-consola-artisan)
 7. [Documentación de la API REST](#-documentación-de-la-api-rest)
 8. [Estructura del Proyecto](#-estructura-del-proyecto)
-9. [Solución de Problemas Frecuentes](#-solución-de-problemas-frecuentes)
+9. [Pruebas Automatizadas](#-pruebas-automatizadas)
+10. [Solución de Problemas Frecuentes](#-solución-de-problemas-frecuentes)
+11. [Migración desde Laravel 7](#-migración-desde-laravel-7)
 
 ---
 
@@ -52,12 +54,12 @@ Servir como un **puente de datos optimizado** para aplicaciones cliente (sistema
 
 ## 💻 Requisitos del Sistema
 
-- **PHP:** `7.4.x` (Recomendado) o `8.0.x`.
-  > ⚠️ **Importante:** Laravel 7 no es compatible con PHP 8.1 o superior debido a cambios en la interfaz `ArrayAccess`.
-- **Laravel Framework:** `7.30.7`
+- **PHP:** `8.3` o superior (probado también con `8.4`). Extensiones: `pdo_mysql`, `mbstring`, `openssl`, `curl`, `fileinfo`, `intl` (y `pdo_sqlite` para las pruebas).
+  > `composer.json` fija la plataforma en PHP 8.3 (`config.platform.php`), así las dependencias se mantienen compatibles con 8.3 aunque desarrolles con una versión más nueva.
+- **Laravel Framework:** `13.x`
 - **Gestor de Paquetes:** Composer 2.x
-- **Base de Datos:** MySQL 5.7+ / 8.0+ o MariaDB 10.3+
-- **Servidor Web Local:** Laragon (con PHP 7.4 Thread Safe - TS), XAMPP o `php artisan serve`.
+- **Base de Datos:** MySQL 8.0+ o MariaDB 10.6+
+- **Servidor Web Local:** `php artisan serve`, Laravel Herd o Laragon. El *document root* es la carpeta `public/`.
 
 ---
 
@@ -108,16 +110,17 @@ La aplicación quedará disponible en `http://127.0.0.1:8000`.
 
 ## ⚙️ Configuración de Entorno (.env)
 
-Asegúrate de tener estos valores configurados en tu archivo `.env`:
+`.env.example` contiene las variables del curso. Las más importantes:
 
 ```env
-APP_NAME="Bridges Note"
+APP_NAME='PROYECTO BASE'
+LOGO_PROJECT='https://cdn-icons-png.flaticon.com/512/6886/6886480.png'
 APP_ENV=local
 APP_KEY=base64:...
 APP_DEBUG=true
-APP_URL=http://127.0.0.1:8000
+APP_URL=http://localhost
 
-# Conexión MySQL
+# Conexión MySQL (pon tu contraseña real en DB_PASSWORD)
 DB_CONNECTION=mysql
 DB_HOST=127.0.0.1
 DB_PORT=3306
@@ -125,11 +128,19 @@ DB_DATABASE=escalebridge
 DB_USERNAME=root
 DB_PASSWORD=
 
-# Controlador de sesión en archivo (no requiere tabla 'sessions' en BD)
-SESSION_DRIVER=file
+# Drivers en archivo / síncronos: no requieren tablas extra en la BD
 CACHE_DRIVER=file
 QUEUE_CONNECTION=sync
+SESSION_DRIVER=file
+
+# Opcionales: sincronización con ESCALE
+# ESCALE_BASE_URL=https://escale.minedu.gob.pe/padron/rest
+# ESCALE_TIMEOUT=30
+# ESCALE_RETRIES=5
+# ESCALE_PAGE_SIZE=500
 ```
+
+> Laravel 11+ renombró `CACHE_DRIVER` → `CACHE_STORE` y `BROADCAST_DRIVER` → `BROADCAST_CONNECTION`. `config/cache.php` acepta ambos nombres. `LOGO_PROJECT` se expone como `config('app.logo')`. Las variables `MIX_*`, `PUSHER_*` y `BROADCAST_DRIVER` se conservan por compatibilidad con el curso, pero esta API no las usa.
 
 ---
 
@@ -145,15 +156,27 @@ php artisan sync:locations
 1. **Regiones (`/padron/rest/regiones`):** Descarga los 25 departamentos del país con sus nombres, coordenadas (`pointX`, `pointY`) y nivel de `zoom`.
 2. **Provincias (`/padron/rest/provincias?idRegion={id}`):** Por cada región, descarga sus provincias.
 3. **Distritos (`/padron/rest/distritos?idProvincia={id}`):** Por cada provincia, descarga los distritos correspondientes.
-4. **Colegios (`/padron/rest/instituciones?estados=1&ubigeo={idDistrito}`):** Por cada distrito, descarga las instituciones educativas activas y las almacena en la tabla `schools` vinculando el código modular (`codMod`) como llave primaria y asociando el `idDistrito`.
+4. **Colegios (`/padron/rest/instituciones?estados=1&ubigeo={idDistrito}&start={n}&max=500`):** Por cada distrito, descarga **página por página** (ESCALE devuelve solo 50 registros si no se pagina) las instituciones educativas activas y las almacena en la tabla `schools` vinculando el código modular (`codMod`) como llave primaria y asociando el `idDistrito`.
 
 > ⏱️ **Nota:** La sincronización total recorre más de 1,800 distritos y 80,000 colegios, por lo que puede tomar varios minutos según la velocidad de conexión y respuesta del servidor del MINEDU.
+
+### Comportamiento ante errores
+- Cada llamada a ESCALE tiene *timeout* (`ESCALE_TIMEOUT`, 30 s) y reintentos con espera creciente (`ESCALE_RETRIES`, 5).
+- Si falla una región, provincia o distrito, se muestra el error y **la sincronización continúa** con los demás.
+- El comando termina con código `0` si todo salió bien y `1` si hubo algún error de comunicación. Puedes volver a ejecutarlo sin riesgo: usa `updateOrCreate`, así que no duplica registros.
+- Un distrito sin colegios activos muestra `No se encontraron registros de escuelas`, pero no cuenta como error.
 
 ---
 
 ## 📡 Documentación de la API REST
 
 Todos los endpoints retornan respuestas en formato JSON bajo el prefijo `/api/`.
+
+- **CORS:** abierto a cualquier origen (`config/cors.php`).
+- **Límite:** 60 peticiones por minuto por IP. Al superarlo se responde `429 Too Many Requests`.
+- **Tipos:** `pointX` y `pointY` se devuelven como texto con 7 decimales (precisión exacta de `DECIMAL(10,7)`), y `zoom` como entero. Cada registro incluye además `created_at` y `updated_at`.
+- **Errores:** si no hay resultados, se responde `404` con `{"status": "error", "message": "..."}`. Cualquier otro error bajo `/api` también se responde en JSON.
+- `GET /` devuelve una descripción breve de la API y `GET /up` sirve como chequeo de salud.
 
 ### 1. Listar Regiones / Departamentos
 Obtiene todas las regiones del país.
@@ -168,8 +191,8 @@ Obtiene todas las regiones del país.
     {
       "idRegion": "15",
       "nombreRegion": "LIMA",
-      "pointX": -12.046374,
-      "pointY": -77.042793,
+      "pointX": "-12.0463740",
+      "pointY": "-77.0427930",
       "zoom": 10
     }
   ]
@@ -192,8 +215,8 @@ Obtiene las provincias pertenecientes a una región (mediante los 2 primeros dí
     {
       "idProvincia": "1501",
       "nombreProvincia": "LIMA",
-      "pointX": -12.046374,
-      "pointY": -77.042793
+      "pointX": "-12.0463740",
+      "pointY": "-77.0427930"
     }
   ]
 }
@@ -262,37 +285,84 @@ brigesnote/
 │   │   └── SyncLocations.php       # Comando 'sync:locations' (consumo de API ESCALE)
 │   ├── Http/Controllers/
 │   │   └── LocationController.php  # Controlador de endpoints /api/
-│   └── Models/
-│       ├── District.php            # Modelo Distritos
-│       ├── Province.php            # Modelo Provincias
-│       ├── Region.php              # Modelo Regiones
-│       └── School.php              # Modelo Colegios / Escuelas
-├── database/migrations/
-│   ├── ..._create_regions_table.php
-│   ├── ..._create_provinces_table.php
-│   ├── ..._create_districts_table.php
-│   └── ..._create_schools_table.php
+│   ├── Models/
+│   │   ├── District.php            # Modelo Distritos
+│   │   ├── Province.php            # Modelo Provincias
+│   │   ├── Region.php              # Modelo Regiones
+│   │   ├── School.php              # Modelo Colegios / Escuelas
+│   │   └── User.php                # Modelo de usuario del framework
+│   └── Providers/
+│       └── AppServiceProvider.php  # Límite de 60 peticiones/minuto
+├── bootstrap/app.php               # Rutas, middleware y manejo de errores
+├── config/
+│   ├── cors.php                    # CORS abierto para /api/*
+│   └── services.php                # Configuración de ESCALE
+├── database/
+│   ├── migrations/                 # Tablas (mismos nombres de archivo que en Laravel 7)
+│   └── seeders/DatabaseSeeder.php
+├── public/                         # Document root (index.php, .htaccess)
 ├── routes/
-│   └── api.php                     # Definición de rutas REST
+│   ├── api.php                     # Definición de rutas REST
+│   ├── web.php                     # GET / (descripción de la API)
+│   └── console.php
+├── tests/Feature/                  # Pruebas de la API y de la sincronización
 ├── .env.example                    # Plantilla de variables de entorno
 └── .gitignore                      # Reglas de exclusión para Git
 ```
 
 ---
 
+## 🧪 Pruebas Automatizadas
+
+```bash
+php artisan test
+```
+
+Las pruebas usan SQLite en memoria (ver `phpunit.xml`), así que no tocan la base MySQL, y simulan la API de MINEDU con `Http::fake()`, sin hacer llamadas reales. Cubren:
+- los 4 endpoints (éxito, 404, tipos del JSON, CORS y límite de peticiones);
+- la sincronización: respuestas con un objeto o con una lista, campos faltantes, distritos sin colegios, errores HTTP y re-ejecución sin duplicados.
+
+Estilo de código: `vendor/bin/pint`.
+
+---
+
 ## 🛠️ Solución de Problemas Frecuentes
 
-### 1. Error: `During inheritance of ArrayAccess: Return type of ... should either be compatible`
-- **Causa:** Estás ejecutando el proyecto con PHP 8.1, 8.2 o superior.
-- **Solución:** Cambia la versión de PHP en Laragon (o en tu servidor) a **PHP 7.4 (Thread Safe)** o **PHP 8.0**.
+### 1. Error: `SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost'`
+- **Causa:** El usuario de MySQL tiene contraseña y `DB_PASSWORD` está vacío en `.env`.
+- **Solución:** Coloca la contraseña correcta en `DB_PASSWORD` y ejecuta `php artisan config:clear`.
 
-### 2. Error: `Service Apache can not start ... fcgid.conf` en Laragon
-- **Causa:** Descargaste la versión `nts` (Non-Thread Safe) de PHP en Windows.
-- **Solución:** Descarga e instala en Laragon la versión **Thread Safe (TS)** desde [windows.php.net](https://windows.php.net/downloads/releases/archives/).
+### 2. Error: `Base table or view not found: 1146 Table '...sessions' (o 'cache') doesn't exist`
+- **Causa:** `SESSION_DRIVER=database` o `CACHE_DRIVER=database` sin las tablas correspondientes.
+- **Solución:** Usa `SESSION_DRIVER=file` y `CACHE_DRIVER=file`, como en `.env.example`.
 
-### 3. Error: `Base table or view not found: 1146 Table '...sessions' doesn't exist`
-- **Causa:** En el archivo `.env` está configurado `SESSION_DRIVER=database` sin haber migrado la tabla de sesiones.
-- **Solución:** Cambia en `.env` a `SESSION_DRIVER=file`.
+### 3. Error: `Your requirements could not be resolved` / `php >=8.3` al hacer `composer install`
+- **Causa:** Composer se está ejecutando con PHP 7.x u 8.0–8.2.
+- **Solución:** Instala o selecciona PHP 8.3+ (en Herd o Laragon) y verifica con `php -v`.
+
+### 4. La página muestra el listado de archivos o da 404 en todas las rutas
+- **Causa:** El servidor web apunta a la raíz del proyecto en lugar de `public/`.
+- **Solución:** Configura el *document root* en `public/` o usa `php artisan serve`.
+
+---
+
+## 🔁 Migración desde Laravel 7
+
+Cambios principales respecto a la versión anterior (Laravel 7.30 / PHP 7.4):
+
+| Antes (Laravel 7) | Ahora (Laravel 13) |
+|---|---|
+| `index.php`, `.htaccess` en la raíz | Carpeta estándar `public/` |
+| `app/Http/Kernel.php`, `app/Console/Kernel.php`, `RouteServiceProvider` | `bootstrap/app.php` |
+| `fideloper/proxy`, `fruitcake/laravel-cors` | Middleware incluido en el framework |
+| `facade/ignition`, PHPUnit 9 | Página de errores nativa, PHPUnit 12 |
+| Migraciones con nombre de clase | Clases anónimas (mismos nombres de archivo y mismo esquema) |
+| `database/seeds/` | `database/seeders/` con namespace |
+| Frontend con laravel-mix (sin uso) | Eliminado: el proyecto es solo API |
+| `GET /api/user` (`auth:api`, nunca funcional: no existía la columna `api_token`) | Eliminado |
+| `zoom` llegaba como `"7"` (texto) | `zoom` llega como `7` (entero) |
+
+Una base `escalebridge` creada con la versión anterior sigue siendo compatible: `php artisan migrate` no tiene nada pendiente.
 
 ---
 

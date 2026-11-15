@@ -2,20 +2,20 @@
 
 namespace Tests\Feature;
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class ExampleTest extends TestCase
 {
-    /**
-     * A basic test example.
-     *
-     * @return void
-     */
-    public function testBasicTest()
+    public function test_la_raiz_describe_la_api(): void
     {
-        $response = $this->get('/');
+        $this->get('/')
+            ->assertOk()
+            ->assertJsonPath('name', config('app.name'))
+            ->assertJsonFragment(['GET /api/regiones']);
+    }
 
-        $response->assertStatus(200);
+    public function test_endpoint_de_salud(): void
+    {
+        $this->get('/up')->assertOk();
     }
 }

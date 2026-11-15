@@ -14,20 +14,33 @@ return [
     |
     */
 
-    'mailgun' => [
-        'domain' => env('MAILGUN_DOMAIN'),
-        'secret' => env('MAILGUN_SECRET'),
-        'endpoint' => env('MAILGUN_ENDPOINT', 'api.mailgun.net'),
+    'postmark' => [
+        'key' => env('POSTMARK_API_KEY'),
     ],
 
-    'postmark' => [
-        'token' => env('POSTMARK_TOKEN'),
+    'resend' => [
+        'key' => env('RESEND_API_KEY'),
     ],
 
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
+    ],
+
+    'slack' => [
+        'notifications' => [
+            'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
+            'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
+        ],
+    ],
+
+    // API pública de MINEDU / ESCALE usada por el comando sync:locations.
+    'escale' => [
+        'base_url' => env('ESCALE_BASE_URL', 'https://escale.minedu.gob.pe/padron/rest'),
+        'timeout' => (int) env('ESCALE_TIMEOUT', 30),
+        'retries' => (int) env('ESCALE_RETRIES', 5),
+        'page_size' => (int) env('ESCALE_PAGE_SIZE', 500),
     ],
 
 ];

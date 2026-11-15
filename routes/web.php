@@ -2,17 +2,16 @@
 
 use Illuminate\Support\Facades\Route;
 
-/*
-|--------------------------------------------------------------------------
-| Web Routes
-|--------------------------------------------------------------------------
-|
-| Here is where you can register web routes for your application. These
-| routes are loaded by the RouteServiceProvider within a group which
-| contains the "web" middleware group. Now create something great!
-|
-*/
-
+// Proyecto solo-API: la raíz devuelve una descripción breve en JSON en lugar de una vista.
 Route::get('/', function () {
-    return view('welcome');
+    return response()->json([
+        'name' => config('app.name'),
+        'logo' => config('app.logo'),
+        'endpoints' => [
+            'GET /api/regiones',
+            'GET /api/provincias/{idRegion}',
+            'GET /api/distritos/{idProvince}',
+            'GET /api/colegios/{ubigeo}',
+        ],
+    ]);
 });
