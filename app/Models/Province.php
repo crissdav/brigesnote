@@ -2,15 +2,16 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Province extends Model
 {
-
     protected $table = 'provinces';
+
     protected $primaryKey = 'idProvincia';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -19,4 +20,12 @@ class Province extends Model
         'pointX',
         'pointY',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'pointX' => 'decimal:7',
+            'pointY' => 'decimal:7',
+        ];
+    }
 }
